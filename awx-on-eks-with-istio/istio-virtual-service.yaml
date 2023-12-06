@@ -1,0 +1,21 @@
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: awx-vs
+spec:
+  hosts:
+    - "awx.dataandprivacy.net"
+  gateways:
+    - istiogateway-awx
+  http:
+    - match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: awx-service
+            port:
+              number: 80
+
+### please update line #8 with your domain name

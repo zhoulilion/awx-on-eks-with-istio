@@ -1,0 +1,73 @@
+version: 0.2
+phases:
+  install:
+    commands:
+      - echo "Install Phase - Nothing to do using latest Amazon Linux Docker Image for CodeBuild which has all AWS Tools - https://github.com/aws/aws-codebuild-docker-images/blob/master/al2/x86_64/standard/3.0/Dockerfile"
+  pre_build:
+      commands:
+        # Verify AWS CLI Version        
+        - echo "Verify AWS CLI Version..."
+        - aws --version
+        # Login to ECR Registry for docker to push the image to ECR Repository
+        - echo "Login in to Amazon ECR..."
+        - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_URL
+        # Update Kube config Home Directory
+        - export KUBECONFIG=$HOME/.kube/config
+  build:
+    commands:
+      # Update kubeconfig for EKS cluster
+      - echo "Install Phase - Nothing to do using latest Amazon Linux Docker Image...."
+  post_build:
+    commands:
+     # Fetch PostgreSQL password from AWS Secrets Manager as an environment variable
+      - export MY_SECRET=$(aws secretsmanager get-secret-value --secret-id prod/awx/secret --query SecretString --output text)
+      - export awxdbuser=$(echo $MY_SECRET | jq -r '.dbusername')
+      - export awxdbpw=$(echo $MY_SECRET | jq -r '.dbuserpwd')
+      - export awxadmin=$(echo $MY_SECRET | jq -r '.webadminname')
+      - export awxadminpwd=$(echo $MY_SECRET | jq -r '.webadminpwd')
+      # Assume the kubectl role which has been added to aws-auth configmap
+      - echo "Setting Environment Variables related to AWS CLI for Kube Config Setup"          
+      - CREDENTIALS=$(aws sts assume-role --role-arn $EKS_KUBECTL_ROLE_ARN --role-session-name codebuild-kubectl --duration-seconds 900)
+      - export AWS_ACCESS_KEY_ID="$(echo ${CREDENTIALS} | jq -r '.Credentials.AccessKeyId')"
+      - export AWS_SECRET_ACCESS_KEY="$(echo ${CREDENTIALS} | jq -r '.Credentials.SecretAccessKey')"
+      - export AWS_SESSION_TOKEN="$(echo ${CREDENTIALS} | jq -r '.Credentials.SessionToken')"
+      - export AWS_EXPIRATION=$(echo ${CREDENTIALS} | jq -r '.Credentials.Expiration')
+      - echo "assume the new role of " $EKS_KUBECTL_ROLE_ARN
+      - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME
+      # create the namespace
+      - echo "Checking if the namespace $NAME_SPACE exists in the cluster"
+      - kubectl get namespace $NAME_SPACE || kubectl create namespace $NAME_SPACE
+      # enable sidecar for $NAME_SPACE
+      - kubectl label ns $NAME_SPACE istio-injection=enabled --overwrite
+      # create a secret for the awx-admin-password
+      - kubectl get secret awx-admin-password --namespace=$NAME_SPACE && kubectl delete secret awx-admin-password --namespace=$NAME_SPACE || echo "Secret not found."
+      - kubectl create secret generic awx-admin-password --namespace=$NAME_SPACE --from-literal=password=$awxadminpwd
+      # install the helm 3 on the building machine
+      - curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
+      # Modify the image setting on deploy template to point rdbc & awx-operator image to ECR
+      - sed -i "s|gcr.io/kubebuilder|$ECR_URL|g" ./awx-operator/templates/deployment-awx-operator-controller-manager.yaml
+      - sed -i "s|quay.io/ansible|$ECR_URL|g" ./awx-operator/templates/deployment-awx-operator-controller-manager.yaml
+      #- cat ./awx-operator/templates/deployment-awx-operator-controller-manager.yaml
+      # Deploy AWX using Helm
+      - helm upgrade --install my-awx ./awx-operator --namespace $NAME_SPACE --set-string AWX.postgres.username=$awxdbuser,AWX.postgres.password=$awxdbpw,AWX.spec.admin_user=$awxadmin --set AWX.spec.admin_password_secret=awx-admin-password -f myValues.yaml --wait
+      # Wait for 60 seconds
+      - sleep 60
+      # Verify the resource creation on EKS
+      - kubectl get pods,svc,configmap,secret -n $NAME_SPACE
+      # configure the external DNS and load balancer
+      - kubectl apply -f awx-ingress.yml
+      # Create istio-system namespace
+      - kubectl get namespace istio-system || kubectl create namespace istio-system
+      # create a secret which is used for tls on istio gateway
+      - kubectl create -n istio-system secret generic tls-secret --from-file=key=certs/key.pem --from-file=cert=certs/cert.pem
+      # configure the istio gateway and virtual serice
+      - kubectl apply -f istio-gateway.yaml -f istio-virtual-service.yaml -n $NAME_SPACE
+      # check the istio configuration
+      - kubectl get ingress --all-namespaces -o wide
+      - kubectl get gw,vs -n $NAME_SPACE
+      - echo "Deployment Finished"
+
+artifacts:
+  files: 
+    - build.json   
+    - "*"

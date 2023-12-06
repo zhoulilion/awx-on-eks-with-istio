@@ -1,0 +1,51 @@
+# Annotations Reference: https://kubernetes-sigs.github.io/aws-load-balancer-controller/latest/guide/ingress/annotations/
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: awx-ingress
+  namespace: istio-system
+  annotations:
+    # Load Balancer Name
+    alb.ingress.kubernetes.io/load-balancer-name: awx-ingress
+    # Ingress Core Settings
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # Health Check Settings
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP 
+    alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+    #Important Note:  Need to add health check path annotations in service level if we are planning to use multiple targets in a load balancer    
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: '15'
+    alb.ingress.kubernetes.io/healthcheck-timeout-seconds: '5'
+    alb.ingress.kubernetes.io/success-codes: '200'
+    alb.ingress.kubernetes.io/healthy-threshold-count: '2'
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: '2'   
+    ## SSL Settings
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:999999999999:certificate/35ec9f50-5d3c-4911-93a0-29f53616df86
+    # SSL Redirect Setting
+    alb.ingress.kubernetes.io/ssl-redirect: '443'   
+    external-dns.alpha.kubernetes.io/hostname: awx.yourdomain.net  
+
+spec:
+  ingressClassName: alb # Ingress Class
+  rules:
+  - http:
+      paths:      
+      - backend:
+          service:
+            name: istio-ingressgateway
+            port: 
+              number: 80
+        path: /
+        pathType: Prefix 
+      - backend:
+          service:
+            name: istio-ingressgateway
+            port: 
+              number: 443
+        path: /
+        pathType: Prefix  
+
+### Please update the #23 with your certificate uri
+### Please update the #26 3with your domain name
+
+    

@@ -1,0 +1,27 @@
+AWX:
+  # enable use of awx-deploy template
+  enabled: true
+  name: awx
+  spec:
+    service_type: nodeport
+    image: 999999999999.dkr.ecr.us-east-1.amazonaws.com/awx
+    image_version: "23.4.0"
+    redis_image: 999999999999.dkr.ecr.us-east-1.amazonaws.com/redis
+    redis_image_version: "7"
+    ee_images:
+      - name: custom-awx-ee
+        image: 999999999999.dkr.ecr.us-east-1.amazonaws.com/awx-ee:23.4.0
+    control_plane_ee_image: 999999999999.dkr.ecr.us-east-1.amazonaws.com/awx-ee:23.4.0
+
+  postgres:
+    enabled: true
+    host: "awx-db-pg.abcdefghijk.us-east-1.rds.amazonaws.com"
+    port: "5432"
+    dbName: awx
+    username:
+    password: 
+    sslmode: prefer
+    type: unmanaged
+
+### Please replace those image URI in line 7/9/13/14 from your ECR
+### Please replace line #18 with your RDS DB endpoint 
